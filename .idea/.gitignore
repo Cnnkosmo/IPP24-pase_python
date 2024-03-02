@@ -1,4 +1,8 @@
 # Default ignored files
 /shelf/
 /workspace.xml
-.idea/
+/inspectionProfiles/profiles_settings.xml
+/vcs.xml
+/modules.xml
+/misc.xml
+/IPP24-pase_python.iml
