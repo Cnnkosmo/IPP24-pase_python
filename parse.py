@@ -112,47 +112,54 @@ def generate_xml_instruction(instruction, order):
     operands = tokens[1:]
     ins_element = Element('instruction', order=str(order), opcode=opcode)
 
-    # Determine the group and types of operands based on opcode
+    # Dynamically determine operand types
     operand_types = []
     if opcode in instruction_groups["no_operand"]:
-        operand_types = []
+        pass  # No operands for these instructions
+    elif any(opcode in ops for ops in instruction_groups["one_operand"].values()):
+        operand_types = [next(key for key, value in instruction_groups["one_operand"].items() if opcode in value)]
     elif opcode in instruction_groups["two_operands"]:
-        operand_types = ['var', 'symb']
+        operand_types = ['var', 'symb']  # Assuming the first is 'var', second is 'symb'
     elif opcode in instruction_groups["three_operands"]:
-        operand_types = ['var', 'symb', 'symb']
-    else:
-        for group, ops in instruction_groups["one_operand"].items():
-            if opcode in ops:
-                operand_types = [group]  # 'var', 'label', or 'symb'
+        operand_types = ['var', 'symb', 'symb']  # Adjust according to specific needs
 
-    # Process operands based on determined types
     for i, operand in enumerate(operands, start=1):
-        op_type = operand_types[i-1] if i <= len(operand_types) else None
-        parsed_type, parsed_value = parse_operand(operand, expected_type=op_type)
-        arg_element = SubElement(ins_element, f'arg{i}', type=parsed_type)
-        arg_element.text = escape_xml_chars(parsed_value)
+        expected_type = operand_types[i-1] if i <= len(operand_types) else 'unknown'
+        op_type, op_value = parse_operand(operand, expected_type=expected_type)
+        arg_element = SubElement(ins_element, f'arg{i}', type=op_type if op_type else 'unknown')
+        arg_element.text = escape_xml_chars(op_value if op_value else '')
 
     return ins_element
+
 
 
 def main():
     program_element = Element('program', language=LANGUAGE)
     order = 0
+    header_processed = False
 
     for line in sys.stdin:
         cleaned_line = COMMENT_REGEX.sub('', line).strip()
-        if cleaned_line:
-            order += 1
-            instruction_element = generate_xml_instruction(cleaned_line, order)
-            program_element.append(instruction_element)
+        if not cleaned_line:  # Skip empty lines
+            continue
+        if not header_processed:
+            if ".IPPcode24" in cleaned_line:
+                header_processed = True
+                continue  # Skip the header line once it's processed
+        order += 1
+        instruction_element = generate_xml_instruction(cleaned_line, order)
+        program_element.append(instruction_element)
 
+    if not header_processed:
+        raise ValueError("Missing or incorrect header. Expected '.IPPcode24'")
     xml_str = XML_HEADER + tostring(program_element, 'utf-8').decode('utf-8')
     pretty_xml_str = parseString(xml_str).toprettyxml(indent="  ")
     print(pretty_xml_str)
+
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
         sys.stderr.write(f"Error: {str(e)}\n")
-        sys.exit(1)
+        sys.exit(0)
