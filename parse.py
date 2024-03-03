@@ -38,7 +38,8 @@ OPERAND_TYPE_REGEX = re.compile(r'^([GLT]F)@([-\w$&%*!?]+)$')
 
 
 def escape_xml_chars(text):
-    """Escape special XML characters in text."""
+    if text is None:
+        return ''
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 def get_operand_type(operand):
@@ -108,27 +109,28 @@ def parse_operand(operand, expected_type=None):
 def generate_xml_instruction(instruction, order):
     tokens = instruction.strip().split()
     opcode = tokens[0].upper()
+    operands = tokens[1:]
     ins_element = Element('instruction', order=str(order), opcode=opcode)
 
-    # Operand handling based on instruction type
-    for i, operand in enumerate(tokens[1:], start=1):
-        if opcode in ["MOVE", "INT2CHAR", "STRLEN", "TYPE"]:
-            # First operand is var, the rest are symb
-            op_type, op_value = ('var', operand) if i == 1 else parse_operand(operand, 'symb')
-        elif opcode in ["DEFVAR", "POPS"]:
-            # These instructions expect a var type
-            op_type, op_value = parse_operand(operand, 'var')
-        elif opcode in ["CALL", "LABEL", "JUMP"]:
-            # These instructions expect a label
-            op_type, op_value = 'label', operand  # Simplified for demonstration
-        # Add more cases as needed for different instructions
-        else:
-            # Default handling, e.g., for PUSHFRAME, POPFRAME without operands
-            op_type, op_value = parse_operand(operand)
+    # Determine the group and types of operands based on opcode
+    operand_types = []
+    if opcode in instruction_groups["no_operand"]:
+        operand_types = []
+    elif opcode in instruction_groups["two_operands"]:
+        operand_types = ['var', 'symb']
+    elif opcode in instruction_groups["three_operands"]:
+        operand_types = ['var', 'symb', 'symb']
+    else:
+        for group, ops in instruction_groups["one_operand"].items():
+            if opcode in ops:
+                operand_types = [group]  # 'var', 'label', or 'symb'
 
-        if op_type and op_value:
-            arg_element = SubElement(ins_element, f'arg{i}', type=op_type)
-            arg_element.text = escape_xml_chars(op_value)
+    # Process operands based on determined types
+    for i, operand in enumerate(operands, start=1):
+        op_type = operand_types[i-1] if i <= len(operand_types) else None
+        parsed_type, parsed_value = parse_operand(operand, expected_type=op_type)
+        arg_element = SubElement(ins_element, f'arg{i}', type=parsed_type)
+        arg_element.text = escape_xml_chars(parsed_value)
 
     return ins_element
 
