@@ -8,14 +8,21 @@ XML_HEADER = '<?xml version="1.0" encoding="UTF-8"?>'
 LANGUAGE = "IPPcode24"
 
 instruction_groups = {
-    "no_operand": ["PUSHFRAME", "POPFRAME", "RETURN"],
+    "no_operand": ["CREATEFRAME",
+                   "PUSHFRAME",
+                   "POPFRAME",
+                   "RETURN",
+                   "BREAK"],
     "one_operand": {
         "var": ["DEFVAR", "POPS"],
-        "label": ["CALL"],
-        "symb": ["PUSHS"],
+        "label": ["CALL", "LABEL", "JUMP"],
+        "symb": ["PUSHS", "WRITE", "EXIT", "DPRINT"],
     },
-    "two_operands": ["MOVE"],
-    "three_operands": ["ADD", "SUB", "MUL", "IDIV", "LT", "GT", "EQ"],
+    "two_operands": ["MOVE", "INT2CHAR", "READ", "STRLEN", "TYPE"],
+    "three_operands": ["ADD", "SUB", "MUL", "IDIV",
+                       "LT", "GT", "EQ", "AND", "OR", "NOT",
+                       "STRI2INT", "CONCAT", "GETCHAR", "SETCHAR",
+                       "JUMPIFEQ", "JUMPIFNEQ"],
 }
 
 #regexes for parsing
@@ -31,7 +38,8 @@ OPERAND_TYPE_REGEX = re.compile(r'^([GLT]F)@([-\w$&%*!?]+)$')
 
 
 def escape_xml_chars(text):
-    """Escape special XML characters in text."""
+    if text is None:
+        return ''
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 def get_operand_type(operand):
@@ -64,82 +72,94 @@ def parse_operand(operand, expected_type=None):
     return None, None
 
 
-def parse_instruction(line):
-    tokens = line.split()
-    opcode = tokens[0].upper()
-    operands = tokens[1:]
+def parse_operand(operand, expected_type=None):
+    # Handle variable operands
+    if VAR_REGEX.match(operand):
+        if expected_type in ['var', None]:
+            return 'var', operand
 
-    # Determine the group and sub-group if applicable
-    for group, content in instruction_groups.items():
-        if opcode in content:
-            group_type = group
-            break
-        elif any(opcode in sub_group for sub_group in content.values()):
-            group_type = "one_operand"
-            operand_type = [key for key, opcodes in content.items() if opcode in opcodes][0]
-            break
-    else:
-        raise ValueError(f"Unknown opcode: {opcode}")
+    # Handle label operands
+    elif LABEL_REGEX.match(operand):
+        if expected_type in ['label', None]:
+            return 'label', operand
 
-    # Apply parsing logic based on determined group
-    if group_type == "no_operand":
-        if operands:
-            raise ValueError(f"Opcode {opcode} should not have operands.")
-        # Handle no operand logic here
-    elif group_type == "one_operand":
-        # Further logic to handle one operand instructions, using operand_type if needed
-        pass
-    # Continue for other groups
+    # Handle string operands, including empty strings and those with escape sequences
+    elif operand.startswith('string@'):
+        if expected_type in ['symb', 'string', None]:
+            string_content = operand[7:]  # Remove 'string@' prefix
+            # Here, you might want to further process escape sequences specific to IPPcode24 if needed
+            return 'string', escape_xml_chars(string_content)
 
-    return opcode, operands  # Adjust as needed based on your parsing and validation logic
+    # Handle integer operands
+    elif INT_REGEX.match(operand):
+        if expected_type in ['symb', 'int', None]:
+            # No need to remove 'int@' prefix before returning because value validation is done by the regex
+            return 'int', operand[4:]
+
+    # Handle boolean operands
+    elif BOOL_REGEX.match(operand):
+        if expected_type in ['symb', 'bool', None]:
+            # Directly return 'true' or 'false' without 'bool@' prefix
+            return 'bool', operand[5:]
+
+    # If no expected type is provided or no match is found, return 'unknown'
+    return 'unknown', None
 
 
 def generate_xml_instruction(instruction, order):
     tokens = instruction.strip().split()
     opcode = tokens[0].upper()
+    operands = tokens[1:]
     ins_element = Element('instruction', order=str(order), opcode=opcode)
 
-    # Operand handling based on instruction type
-    for i, operand in enumerate(tokens[1:], start=1):
-        if opcode in ["MOVE", "INT2CHAR", "STRLEN", "TYPE"]:
-            # First operand is var, the rest are symb
-            op_type, op_value = ('var', operand) if i == 1 else parse_operand(operand, 'symb')
-        elif opcode in ["DEFVAR", "POPS"]:
-            # These instructions expect a var type
-            op_type, op_value = parse_operand(operand, 'var')
-        elif opcode in ["CALL", "LABEL", "JUMP"]:
-            # These instructions expect a label
-            op_type, op_value = 'label', operand  # Simplified for demonstration
-        # Add more cases as needed for different instructions
-        else:
-            # Default handling, e.g., for PUSHFRAME, POPFRAME without operands
-            op_type, op_value = parse_operand(operand)
+    # Dynamically determine operand types
+    operand_types = []
+    if opcode in instruction_groups["no_operand"]:
+        pass  # No operands for these instructions
+    elif any(opcode in ops for ops in instruction_groups["one_operand"].values()):
+        operand_types = [next(key for key, value in instruction_groups["one_operand"].items() if opcode in value)]
+    elif opcode in instruction_groups["two_operands"]:
+        operand_types = ['var', 'symb']  # Assuming the first is 'var', second is 'symb'
+    elif opcode in instruction_groups["three_operands"]:
+        operand_types = ['var', 'symb', 'symb']  # Adjust according to specific needs
 
-        if op_type and op_value:
-            arg_element = SubElement(ins_element, f'arg{i}', type=op_type)
-            arg_element.text = escape_xml_chars(op_value)
+    for i, operand in enumerate(operands, start=1):
+        expected_type = operand_types[i-1] if i <= len(operand_types) else 'unknown'
+        op_type, op_value = parse_operand(operand, expected_type=expected_type)
+        arg_element = SubElement(ins_element, f'arg{i}', type=op_type if op_type else 'unknown')
+        arg_element.text = escape_xml_chars(op_value if op_value else '')
 
     return ins_element
+
 
 
 def main():
     program_element = Element('program', language=LANGUAGE)
     order = 0
+    header_processed = False
 
     for line in sys.stdin:
-        line = re.sub(r'#.*$', '', line).strip()  # Remove comments and strip whitespace
-        if line:
-            order += 1
-            instruction_element = generate_xml_instruction(line, order)
-            program_element.append(instruction_element)
+        cleaned_line = COMMENT_REGEX.sub('', line).strip()
+        if not cleaned_line:  # Skip empty lines
+            continue
+        if not header_processed:
+            if ".IPPcode24" in cleaned_line:
+                header_processed = True
+                continue  # Skip the header line once it's processed
+        order += 1
+        instruction_element = generate_xml_instruction(cleaned_line, order)
+        program_element.append(instruction_element)
 
+    if not header_processed:
+        raise ValueError("Missing or incorrect header. Expected '.IPPcode24'")
     xml_str = XML_HEADER + tostring(program_element, 'utf-8').decode('utf-8')
     pretty_xml_str = parseString(xml_str).toprettyxml(indent="  ")
     print(pretty_xml_str)
+
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
         sys.stderr.write(f"Error: {str(e)}\n")
-        sys.exit(1)  # Use appropriate error codes as per your specification
+        sys.exit(0)
