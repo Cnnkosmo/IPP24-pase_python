@@ -7,20 +7,6 @@ from xml.dom.minidom import parseString
 XML_HEADER = '<?xml version="1.0" encoding="UTF-8"?>'
 LANGUAGE = "IPPcode24"
 
-# instruction_groups = {
-#     "no_operand": ["CREATEFRAME", "PUSHFRAME", "POPFRAME", "RETURN", "BREAK"],
-#     "one_operand": {
-#         "var": ["PUSHS","DEFVAR", "WRITE","POPS"],
-#         "label": ["CALL", "LABEL", "JUMP"],
-#         "symb": ["PUSHS", "WRITE", "EXIT", "DPRINT"],
-#     },
-#     "two_operands": ["MOVE", "INT2CHAR", "READ", "STRLEN", "TYPE"],
-#     "three_operands": ["ADD", "SUB", "MUL", "IDIV",
-#                        "LT", "GT", "EQ", "AND", "OR", "NOT",
-#                        "STRI2INT", "CONCAT", "GETCHAR", "SETCHAR",
-#                        "JUMPIFEQ", "JUMPIFNEQ"],
-# }
-
 instruction_formats = {
     "CREATEFRAME": [],
     "PUSHFRAME": [],
@@ -48,6 +34,24 @@ instruction_formats = {
     "LT": ["var", "symb", "symb"],
     "GT": ["var", "symb", "symb"],
     "EQ": ["var", "symb", "symb"],
+    "ADD": ["var", "symb", "symb"],
+    "OR": ["var", "symb", "symb"],
+    "NOT": ["var", "symb", "symb"],
+    "INT2CHAR": ["var", "symb"],
+    "STR2INT": ["var", "symb", "symb"],
+    "WRITE": ["symb"],
+    "CONCAT": ["var", "symb", "symb"],
+    "STRLEN": ["var", "symb"],
+    "GETCHAR": ["var", "symb", "symb"],
+    "SETCHAR": ["var", "symb", "symb"],
+    "TYPE": ["var", "symb"],
+    "LABEL": ["label"],
+    "JUMP": ["label"],
+    "JUMPIFEQ": ["label", "symb", "symb"],
+    "JUMPIFNEQ": ["label", "symb", "symb"],
+    "EXIT": ["symb"],
+    "DPRINT": ["symb"],
+    "BREAK": []
 }
 
 
@@ -84,33 +88,37 @@ def parse_operand(instruction, operand_index, operand):
     else:
         return 'unknown', None
 
+
 def check_operand_type(operand, expected_type):
-    if expected_type == 'var' and VAR_REGEX.match(operand):
-        return 'var', operand.split('@', 1)[1]
-    elif expected_type == 'label' and LABEL_REGEX.match(operand):
-        return 'label', operand
-    elif expected_type == 'string' and STRING_REGEX.match(operand) and STRING_VALIDATION_REGEX.match(operand):
-        # Remove 'string@' prefix and escape XML characters
-        return 'string', escape_xml_chars(operand.split('@', 1)[1])
-    elif expected_type == 'int' and INT_REGEX.match(operand):
-        return 'int', operand.split('@', 1)[1]
-    elif expected_type == 'bool' and BOOL_REGEX.match(operand):
-        return 'bool', operand.split('@', 1)[1]
-    elif expected_type == 'nil' and operand == 'nil@nil':
-        return 'nil', 'nil'
+    if expected_type == 'symb':
+        # 'symb' can be any of 'var', 'int', 'bool', 'string', or 'nil'
+        # Attempt to match operand against all possible 'symb' types
+        for check_type in ['var', 'int', 'bool', 'string', 'nil']:
+            op_type, op_value = match_operand_to_type(operand, check_type)
+            if op_type != 'unknown':
+                return op_type, op_value
     else:
-        # Handle 'symb' type, which can be any of int, bool, string, or nil
-        if expected_type == 'symb':
-            if INT_REGEX.match(operand):
-                return 'int', operand.split('@', 1)[1]
-            elif BOOL_REGEX.match(operand):
-                return 'bool', operand.split('@', 1)[1]
-            elif STRING_REGEX.match(operand) and STRING_VALIDATION_REGEX.match(operand):
-                return 'string', escape_xml_chars(operand.split('@', 1)[1])
-            elif operand == 'nil@nil':
-                return 'nil', 'nil'
+        # Directly match operand against the expected type
+        return match_operand_to_type(operand, expected_type)
+
     return 'unknown', None
 
+
+def match_operand_to_type(operand, type):
+    # Matches operand to a specific type using regex patterns
+    if type == 'var' and VAR_REGEX.match(operand):
+        return 'var', operand
+    elif type == 'int' and INT_REGEX.match(operand):
+        return 'int', operand.split('@', 1)[1]
+    elif type == 'bool' and BOOL_REGEX.match(operand):
+        return 'bool', operand.split('@', 1)[1]
+    elif type == 'string' and STRING_REGEX.match(operand):
+        # Ensure to escape XML special characters in string values
+        return 'string', escape_xml_chars(operand.split('@', 1)[1])
+    elif type == 'nil' and operand == 'nil@nil':
+        return 'nil', 'nil'
+    else:
+        return 'unknown', None
 
 def generate_xml_instruction(instruction, order):
     tokens = instruction.strip().split()
@@ -118,25 +126,20 @@ def generate_xml_instruction(instruction, order):
     operands = tokens[1:]
     ins_element = Element('instruction', order=str(order), opcode=opcode)
 
-    # Retrieve the expected operand types for the current instruction
+    # Assuming 'instruction_formats' maps opcodes to lists of expected operand types, including 'symb' as a valid type
     expected_operand_types = instruction_formats.get(opcode, [])
 
     for i, operand in enumerate(operands, start=1):
-        # If the instruction format specifies expected types for this operand, use them; otherwise, default to 'unknown'
-        expected_type = expected_operand_types[i - 1] if i <= len(expected_operand_types) else 'unknown'
+        expected_type = expected_operand_types[i - 1] if i <= len(expected_operand_types) else None
+        # Check operand against expected type
+        op_type, op_value = check_operand_type(operand, expected_type)
 
-        # Adjusted to work with new structure, calling parse_operand with the instruction opcode to allow dynamic type checks
-        op_type, op_value = parse_operand(opcode, i - 1, operand)
-
-        # For instructions without operands, ensure the XML is generated correctly (e.g., short form for instructions without any arguments)
-        if op_type == 'unknown' and not op_value:
-            # If there are no operands, and the current instruction supports this, avoid adding empty arg elements
-            continue
-
-        arg_element = SubElement(ins_element, f'arg{i}', type=op_type)
-        arg_element.text = op_value if op_value else ''
+        if op_type != 'unknown':
+            arg_element = SubElement(ins_element, f'arg{i}', type=op_type)
+            arg_element.text = op_value
 
     return ins_element
+
 
 def main():
     program_element = Element('program', language=LANGUAGE)
@@ -146,18 +149,18 @@ def main():
     try:
         for line in sys.stdin:
             cleaned_line = COMMENT_REGEX.sub('', line).strip()
-            if not cleaned_line:  # Skip empty lines
+            if not cleaned_line:
                 continue
             if not header_processed:
-                if ".IPPcode24" in cleaned_line:  # Correctly checks for header in case-insensitive manner
+                if ".IPPcode24" in cleaned_line:
                     header_processed = True
                     continue
                 else:
-                    sys.exit(21)  # Incorrect or missing header
+                    sys.exit(21)
             order += 1
             instruction_element = generate_xml_instruction(cleaned_line, order)
             if instruction_element is None:
-                sys.exit(22)  # Here you should define logic in generate_xml_instruction to return None for unknown opcodes
+                sys.exit(22)
             program_element.append(instruction_element)
 
     except Exception as e:
