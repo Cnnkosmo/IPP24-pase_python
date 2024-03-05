@@ -100,20 +100,27 @@ def main():
     order = 0
     header_processed = False
 
-    for line in sys.stdin:
-        cleaned_line = COMMENT_REGEX.sub('', line).strip()
-        if not cleaned_line:
-            continue
-        if not header_processed:
-            if ".IPPcode24" in cleaned_line():
-                header_processed = True
+    try:
+        for line in sys.stdin:
+            cleaned_line = COMMENT_REGEX.sub('', line).strip()
+            if not cleaned_line:  # Skip empty lines
                 continue
-        order += 1
-        instruction_element = generate_xml_instruction(cleaned_line, order)
-        program_element.append(instruction_element)
+            if not header_processed:
+                if ".IPPcode24" in cleaned_line:  # Correctly checks for header in case-insensitive manner
+                    header_processed = True
+                    continue
+                else:
+                    sys.exit(21)  # Incorrect or missing header
+            order += 1
+            instruction_element = generate_xml_instruction(cleaned_line, order)
+            if instruction_element is None:
+                sys.exit(22)  # Here you should define logic in generate_xml_instruction to return None for unknown opcodes
+            program_element.append(instruction_element)
 
-    if not header_processed:
-        raise ValueError("Missing or incorrect header. Expected '.IPPcode24'")
+    except Exception as e:
+        sys.stderr.write(f"Error: {str(e)}\n")
+        sys.exit(99)
+
     xml_str = XML_HEADER + tostring(program_element, 'utf-8').decode('utf-8')
     dom = parseString(xml_str)
     pretty_xml_str = dom.toprettyxml(indent="    ")
