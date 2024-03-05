@@ -10,7 +10,7 @@ LANGUAGE = "IPPcode24"
 instruction_groups = {
     "no_operand": ["CREATEFRAME", "PUSHFRAME", "POPFRAME", "RETURN", "BREAK"],
     "one_operand": {
-        "var": ["DEFVAR", "POPS"],
+        "var": ["PUSHS","DEFVAR", "WRITE","POPS"],
         "label": ["CALL", "LABEL", "JUMP"],
         "symb": ["PUSHS", "WRITE", "EXIT", "DPRINT"],
     },
@@ -38,37 +38,33 @@ def escape_xml_chars(text):
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 def parse_operand(operand, expected_type=None):
-    # Handle variable operands
+    # Initial parsing to determine the type of operand based on regex matching
     if VAR_REGEX.match(operand):
-        if expected_type in ['var', None]:
-            return 'var', operand
-
-    # Handle label operands
+        op_type = 'var'
     elif LABEL_REGEX.match(operand):
-        if expected_type in ['label', None]:
-            return 'label', operand
-
-    # Handle string operands, including empty strings and those with escape sequences
-    elif operand.startswith('string@'):
-        if expected_type in ['symb', 'string', None]:
-            string_content = operand[7:]  # Remove 'string@' prefix
-            # Here, you might want to further process escape sequences specific to IPPcode24 if needed
-            return 'string', escape_xml_chars(string_content)
-
-    # Handle integer operands
+        op_type = 'label'
+    elif STRING_REGEX.match(operand):
+        op_type = 'string'
+        operand = operand[7:]  # Remove 'string@' prefix
     elif INT_REGEX.match(operand):
-        if expected_type in ['symb', 'int', None]:
-            # No need to remove 'int@' prefix before returning because value validation is done by the regex
-            return 'int', operand[4:]
-
-    # Handle boolean operands
+        op_type = 'int'
+        operand = operand[4:]  # Remove 'int@' prefix
     elif BOOL_REGEX.match(operand):
-        if expected_type in ['symb', 'bool', None]:
-            # Directly return 'true' or 'false' without 'bool@' prefix
-            return 'bool', operand[5:]
+        op_type = 'bool'
+        operand = operand[5:]  # Remove 'bool@' prefix
+    else:
+        op_type = 'unknown'
 
-    # If no expected type is provided or no match is found, return 'unknown'
-    return 'unknown', None
+    # Check if the detected type matches the expected type, if provided
+    if expected_type and op_type != expected_type and op_type != 'unknown':
+        # If there's an expected type and the detected type doesn't match, consider it unknown
+        return 'unknown', None
+
+    # For string type, ensure XML special characters are escaped
+    if op_type == 'string':
+        operand = escape_xml_chars(operand)
+
+    return op_type, operand
 
 def generate_xml_instruction(instruction, order):
     tokens = instruction.strip().split()
