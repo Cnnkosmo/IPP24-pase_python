@@ -7,19 +7,49 @@ from xml.dom.minidom import parseString
 XML_HEADER = '<?xml version="1.0" encoding="UTF-8"?>'
 LANGUAGE = "IPPcode24"
 
-instruction_groups = {
-    "no_operand": ["CREATEFRAME", "PUSHFRAME", "POPFRAME", "RETURN", "BREAK"],
-    "one_operand": {
-        "var": ["PUSHS","DEFVAR", "WRITE","POPS"],
-        "label": ["CALL", "LABEL", "JUMP"],
-        "symb": ["PUSHS", "WRITE", "EXIT", "DPRINT"],
-    },
-    "two_operands": ["MOVE", "INT2CHAR", "READ", "STRLEN", "TYPE"],
-    "three_operands": ["ADD", "SUB", "MUL", "IDIV",
-                       "LT", "GT", "EQ", "AND", "OR", "NOT",
-                       "STRI2INT", "CONCAT", "GETCHAR", "SETCHAR",
-                       "JUMPIFEQ", "JUMPIFNEQ"],
+# instruction_groups = {
+#     "no_operand": ["CREATEFRAME", "PUSHFRAME", "POPFRAME", "RETURN", "BREAK"],
+#     "one_operand": {
+#         "var": ["PUSHS","DEFVAR", "WRITE","POPS"],
+#         "label": ["CALL", "LABEL", "JUMP"],
+#         "symb": ["PUSHS", "WRITE", "EXIT", "DPRINT"],
+#     },
+#     "two_operands": ["MOVE", "INT2CHAR", "READ", "STRLEN", "TYPE"],
+#     "three_operands": ["ADD", "SUB", "MUL", "IDIV",
+#                        "LT", "GT", "EQ", "AND", "OR", "NOT",
+#                        "STRI2INT", "CONCAT", "GETCHAR", "SETCHAR",
+#                        "JUMPIFEQ", "JUMPIFNEQ"],
+# }
+
+instruction_formats = {
+    "CREATEFRAME": [],
+    "PUSHFRAME": [],
+    "POPFRAME": [],
+    "RETURN": [],
+    "BREAK": [],
+    "DEFVAR": ["var"],
+    "POPS": ["var"],
+    "CALL": ["label"],
+    "LABEL": ["label"],
+    "JUMP": ["label"],
+    "PUSHS": ["symb"],
+    "WRITE": ["symb"],
+    "EXIT": ["symb"],
+    "DPRINT": ["symb"],
+    "MOVE": ["var", "symb"],
+    "INT2CHAR": ["var", "symb"],
+    "READ": ["var", ["int", "string", "bool", "nil"]],
+    "STRLEN": ["var", "symb"],
+    "TYPE": ["var", "symb"],
+    "ADD": ["var", "symb", "symb"],
+    "SUB": ["var", "symb", "symb"],
+    "MUL": ["var", "symb", "symb"],
+    "IDIV": ["var", "symb", "symb"],
+    "LT": ["var", "symb", "symb"],
+    "GT": ["var", "symb", "symb"],
+    "EQ": ["var", "symb", "symb"],
 }
+
 
 #regexes for parsing
 COMMENT_REGEX = re.compile(r'#.*$')
@@ -30,41 +60,57 @@ LABEL_REGEX = re.compile(r'^[a-zA-Z_\-$&%*!?][a-zA-Z0-9_\-$&%*!?]*$')
 STRING_REGEX = re.compile(r'^string@.*$')
 INT_REGEX = re.compile(r'^int@[-+]?\d+$')
 BOOL_REGEX = re.compile(r'^bool@(true|false)$')
-OPERAND_TYPE_REGEX = re.compile(r'^([GLT]F)@([-\w$&%*!?]+)$')
+
+STRING_VALIDATION_REGEX = re.compile(r'^string@([^\s#\\]|(\\[0-9]{3}))*$')
 
 def escape_xml_chars(text):
     if text is None:
         return ''
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
-def parse_operand(operand, expected_type=None):
-    # Initial parsing to determine the type of operand based on regex matching
-    if VAR_REGEX.match(operand):
-        op_type = 'var'
-    elif LABEL_REGEX.match(operand):
-        op_type = 'label'
-    elif STRING_REGEX.match(operand):
-        op_type = 'string'
-        operand = operand[7:]  # Remove 'string@' prefix
-    elif INT_REGEX.match(operand):
-        op_type = 'int'
-        operand = operand[4:]  # Remove 'int@' prefix
-    elif BOOL_REGEX.match(operand):
-        op_type = 'bool'
-        operand = operand[5:]  # Remove 'bool@' prefix
+def parse_operand(instruction, operand_index, operand):
+    expected_types = instruction_formats.get(instruction, [])
+    if operand_index < len(expected_types):
+        expected_type = expected_types[operand_index]
+        # If the expected type is a list, it means the operand can be of multiple types
+        if isinstance(expected_type, list):
+            for et in expected_type:
+                op_type, op_value = check_operand_type(operand, et)
+                if op_type != 'unknown':
+                    return op_type, op_value
+            return 'unknown', None
+        else:
+            return check_operand_type(operand, expected_type)
     else:
-        op_type = 'unknown'
-
-    # Check if the detected type matches the expected type, if provided
-    if expected_type and op_type != expected_type and op_type != 'unknown':
-        # If there's an expected type and the detected type doesn't match, consider it unknown
         return 'unknown', None
 
-    # For string type, ensure XML special characters are escaped
-    if op_type == 'string':
-        operand = escape_xml_chars(operand)
+def check_operand_type(operand, expected_type):
+    if expected_type == 'var' and VAR_REGEX.match(operand):
+        return 'var', operand.split('@', 1)[1]
+    elif expected_type == 'label' and LABEL_REGEX.match(operand):
+        return 'label', operand
+    elif expected_type == 'string' and STRING_REGEX.match(operand) and STRING_VALIDATION_REGEX.match(operand):
+        # Remove 'string@' prefix and escape XML characters
+        return 'string', escape_xml_chars(operand.split('@', 1)[1])
+    elif expected_type == 'int' and INT_REGEX.match(operand):
+        return 'int', operand.split('@', 1)[1]
+    elif expected_type == 'bool' and BOOL_REGEX.match(operand):
+        return 'bool', operand.split('@', 1)[1]
+    elif expected_type == 'nil' and operand == 'nil@nil':
+        return 'nil', 'nil'
+    else:
+        # Handle 'symb' type, which can be any of int, bool, string, or nil
+        if expected_type == 'symb':
+            if INT_REGEX.match(operand):
+                return 'int', operand.split('@', 1)[1]
+            elif BOOL_REGEX.match(operand):
+                return 'bool', operand.split('@', 1)[1]
+            elif STRING_REGEX.match(operand) and STRING_VALIDATION_REGEX.match(operand):
+                return 'string', escape_xml_chars(operand.split('@', 1)[1])
+            elif operand == 'nil@nil':
+                return 'nil', 'nil'
+    return 'unknown', None
 
-    return op_type, operand
 
 def generate_xml_instruction(instruction, order):
     tokens = instruction.strip().split()
@@ -72,22 +118,23 @@ def generate_xml_instruction(instruction, order):
     operands = tokens[1:]
     ins_element = Element('instruction', order=str(order), opcode=opcode)
 
-    # Dynamically determine operand types
-    operand_types = []
-    if opcode in instruction_groups["no_operand"]:
-        pass  # No operands for these instructions
-    elif any(opcode in ops for ops in instruction_groups["one_operand"].values()):
-        operand_types = [next(key for key, value in instruction_groups["one_operand"].items() if opcode in value)]
-    elif opcode in instruction_groups["two_operands"]:
-        operand_types = ['var', 'symb']  # Assuming the first is 'var', second is 'symb'
-    elif opcode in instruction_groups["three_operands"]:
-        operand_types = ['var', 'symb', 'symb']  # Adjust according to specific needs
+    # Retrieve the expected operand types for the current instruction
+    expected_operand_types = instruction_formats.get(opcode, [])
 
     for i, operand in enumerate(operands, start=1):
-        expected_type = operand_types[i-1] if i <= len(operand_types) else 'unknown'
-        op_type, op_value = parse_operand(operand, expected_type=expected_type)
-        arg_element = SubElement(ins_element, f'arg{i}', type=op_type if op_type else 'unknown')
-        arg_element.text = escape_xml_chars(op_value if op_value else '')
+        # If the instruction format specifies expected types for this operand, use them; otherwise, default to 'unknown'
+        expected_type = expected_operand_types[i - 1] if i <= len(expected_operand_types) else 'unknown'
+
+        # Adjusted to work with new structure, calling parse_operand with the instruction opcode to allow dynamic type checks
+        op_type, op_value = parse_operand(opcode, i - 1, operand)
+
+        # For instructions without operands, ensure the XML is generated correctly (e.g., short form for instructions without any arguments)
+        if op_type == 'unknown' and not op_value:
+            # If there are no operands, and the current instruction supports this, avoid adding empty arg elements
+            continue
+
+        arg_element = SubElement(ins_element, f'arg{i}', type=op_type)
+        arg_element.text = op_value if op_value else ''
 
     return ins_element
 
