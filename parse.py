@@ -24,7 +24,7 @@ instruction_formats = {
     "DPRINT": ["symb"],
     "MOVE": ["var", "symb"],
     "INT2CHAR": ["var", "symb"],
-    "READ": ["var", ["int", "string", "bool", "nil"]],
+    "READ": ["var", "type"],
     "STRLEN": ["var", "symb"],
     "TYPE": ["var", "symb"],
     "ADD": ["var", "symb", "symb"],
@@ -104,21 +104,33 @@ def check_operand_type(operand, expected_type):
     return 'unknown', None
 
 
-def match_operand_to_type(operand, type):
-    # Matches operand to a specific type using regex patterns
-    if type == 'var' and VAR_REGEX.match(operand):
-        return 'var', operand
-    elif type == 'int' and INT_REGEX.match(operand):
-        return 'int', operand.split('@', 1)[1]
-    elif type == 'bool' and BOOL_REGEX.match(operand):
-        return 'bool', operand.split('@', 1)[1]
-    elif type == 'string' and STRING_REGEX.match(operand):
-        # Ensure to escape XML special characters in string values
-        return 'string', escape_xml_chars(operand.split('@', 1)[1])
-    elif type == 'nil' and operand == 'nil@nil':
-        return 'nil', 'nil'
-    else:
-        return 'unknown', None
+def match_operand_to_type(operand, possible_types):
+    # Ensure possible_types is a list for uniform processing
+    if not isinstance(possible_types, list):
+        possible_types = [possible_types]
+
+    for type in possible_types:
+        if type == 'var' and VAR_REGEX.match(operand):
+            return 'var', operand
+        elif type == 'int' and INT_REGEX.match(operand):
+            return 'int', operand.split('@', 1)[1]
+        elif type == 'bool' and BOOL_REGEX.match(operand):
+            return 'bool', operand.split('@', 1)[1]
+        elif type == 'string' and STRING_REGEX.match(operand):
+            # Ensure to escape XML special characters in string values
+            return 'string', escape_xml_chars(operand.split('@', 1)[1])
+        elif type == 'nil' and operand == 'nil@nil':
+            return 'nil', 'nil'
+        elif type == 'label' and LABEL_REGEX.match(operand):
+            return 'label', operand
+        elif type == 'type':
+            # Handling "type" as a meta-type, where the operand itself should represent one of the allowed data types
+            if operand in ['int', 'string', 'bool', 'nil']:
+                return 'type', operand
+
+    # If no match was found after checking all possible types
+    return 'unknown', None
+
 
 def generate_xml_instruction(instruction, order):
     tokens = instruction.strip().split()
@@ -137,7 +149,8 @@ def generate_xml_instruction(instruction, order):
         if op_type != 'unknown':
             arg_element = SubElement(ins_element, f'arg{i}', type=op_type)
             arg_element.text = op_value
-
+        else:
+            sys.exit(23)
     return ins_element
 
 
