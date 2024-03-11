@@ -34,7 +34,7 @@ instruction_formats = {
     "LT": ["var", "symb", "symb"],
     "GT": ["var", "symb", "symb"],
     "EQ": ["var", "symb", "symb"],
-    "ADD": ["var", "symb", "symb"],
+    "AND": ["var", "symb", "symb"],
     "OR": ["var", "symb", "symb"],
     "NOT": ["var", "symb", "symb"],
     "INT2CHAR": ["var", "symb"],
