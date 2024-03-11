@@ -61,8 +61,8 @@ INSTRUCTION_REGEX = re.compile(r'(\S+)\s*(.*)')
 
 VAR_REGEX = re.compile(r'^(GF|LF|TF)@[a-zA-Z_\-$&%*!?][a-zA-Z0-9_\-$&%*!?]*$')
 LABEL_REGEX = re.compile(r'^[a-zA-Z_\-$&%*!?][a-zA-Z0-9_\-$&%*!?]*$')
-STRING_REGEX = re.compile(r'^string@.*$')
-INT_REGEX = re.compile(r'^int@[-+]?\d+$')
+STRING_REGEX = re.compile(r'^string@([^\\]|(\\[0-7]{3}))*$')
+INT_REGEX = re.compile(r'^int@(-?(?:0x[0-9a-fA-F]+|0o[0-7]+|\d+))$')
 BOOL_REGEX = re.compile(r'^bool@(true|false)$')
 
 STRING_VALIDATION_REGEX = re.compile(r'^string@([^\s#\\]|(\\[0-9]{3}))*$')
