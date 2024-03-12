@@ -37,7 +37,7 @@ instruction_formats = {
     "EQ": ["var", "symb", "symb"],
     "AND": ["var", "symb", "symb"],
     "OR": ["var", "symb", "symb"],
-    "NOT": ["var", "symb", "symb"],
+    "NOT": ["symb", "symb"],
     "INT2CHAR": ["var", "symb"],
     "STR2INT": ["var", "symb", "symb"],
     "WRITE": ["symb"],
@@ -182,6 +182,9 @@ def main():
     except Exception as e:
         sys.stderr.write(f"Error: {str(e)}\n")
         sys.exit(99)
+
+    if not header_processed:
+        sys.exit(21)
 
     rough_string = ET.tostring(program_element, 'utf-8')
     dom = parseString(rough_string)
