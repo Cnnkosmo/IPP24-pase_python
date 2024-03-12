@@ -44,4 +44,4 @@ The XML representation is built using the `xml.etree.ElementTree` module, with e
 ## Implemented and Unfinished Features
 
 - The script fully implements the core functionality of parsing IPPcode24 instructions and generating their XML representation.
-- Error handling covers a wide range of potential issues, though more specific error messages could be added to assist in debugging input code.
+- Implementation with help of OOP.
