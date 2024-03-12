@@ -1,5 +1,6 @@
 import sys
 import re
+import xml.etree.ElementTree as ET
 from xml.etree.ElementTree import Element, SubElement, tostring
 from xml.dom.minidom import parseString
 
@@ -34,7 +35,7 @@ instruction_formats = {
     "LT": ["var", "symb", "symb"],
     "GT": ["var", "symb", "symb"],
     "EQ": ["var", "symb", "symb"],
-    "ADD": ["var", "symb", "symb"],
+    "AND": ["var", "symb", "symb"],
     "OR": ["var", "symb", "symb"],
     "NOT": ["var", "symb", "symb"],
     "INT2CHAR": ["var", "symb"],
@@ -61,16 +62,16 @@ INSTRUCTION_REGEX = re.compile(r'(\S+)\s*(.*)')
 
 VAR_REGEX = re.compile(r'^(GF|LF|TF)@[a-zA-Z_\-$&%*!?][a-zA-Z0-9_\-$&%*!?]*$')
 LABEL_REGEX = re.compile(r'^[a-zA-Z_\-$&%*!?][a-zA-Z0-9_\-$&%*!?]*$')
-STRING_REGEX = re.compile(r'^string@.*$')
-INT_REGEX = re.compile(r'^int@[-+]?\d+$')
+STRING_REGEX = re.compile(r'^string@(?:[^\\]|\\[0-9]{3})*$')
+INT_REGEX = re.compile(r'^int@(-?(?:0x[0-9a-fA-F]+|0o[0-7]+|\d+))$')
 BOOL_REGEX = re.compile(r'^bool@(true|false)$')
 
 STRING_VALIDATION_REGEX = re.compile(r'^string@([^\s#\\]|(\\[0-9]{3}))*$')
 
 def escape_xml_chars(text):
-    if text is None:
-        return ''
-    return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+    # Since there's no requirement to escape XML characters, return the text as is.
+    return text if text is not None else ''
+
 
 def parse_operand(instruction, operand_index, operand):
     expected_types = instruction_formats.get(instruction, [])
@@ -170,6 +171,8 @@ def main():
                     continue
                 else:
                     sys.exit(21)
+            if header_processed and ".IPPcode24" in cleaned_line:
+                    sys.exit(23)
             order += 1
             instruction_element = generate_xml_instruction(cleaned_line, order)
             if instruction_element is None:
@@ -180,10 +183,13 @@ def main():
         sys.stderr.write(f"Error: {str(e)}\n")
         sys.exit(99)
 
-    xml_str = XML_HEADER + tostring(program_element, 'utf-8').decode('utf-8')
-    dom = parseString(xml_str)
+    rough_string = ET.tostring(program_element, 'utf-8')
+    dom = parseString(rough_string)
     pretty_xml_str = dom.toprettyxml(indent="    ")
-    print(pretty_xml_str.strip())
+
+    pretty_xml_str_with_correct_header = pretty_xml_str.replace('<?xml version="1.0" ?>', XML_HEADER, 1)
+
+    print(pretty_xml_str_with_correct_header.strip())
 
 
 if __name__ == "__main__":
